@@ -4,29 +4,69 @@ and replacing the API key with your own.
 
 Usage:
     mitmproxy -s mitmproxy-addon.py
-    
+
     Then launch Antigravity with:
     HTTP_PROXY=http://localhost:8080 \
     HTTPS_PROXY=http://localhost:8080 \
     /Applications/Antigravity.app/Contents/MacOS/Antigravity
 """
 
-from mitmproxy import http
-import re
 import os
+import re
+import socketserver
+import threading
+from http import server
+
 from dotenv import load_dotenv
+from google.cloud import secretmanager
+from mitmproxy import http  # type: ignore
 
 # Load environment variables
 load_dotenv()
 
 # Your Gemini API key
-YOUR_API_KEY = os.getenv("GEMINI_API_KEY", "YOUR_API_KEY_HERE")
+# Attempt to load Gemini API key from GCP Secret Manager if GCP_PROJECT_ID is set
+GCP_PROJECT_ID = os.getenv("GCP_PROJECT_ID")
+if GCP_PROJECT_ID:
+    def get_secret(secret_name: str) -> str:
+        client = secretmanager.SecretManagerServiceClient()
+        name = f"projects/{GCP_PROJECT_ID}/secrets/{secret_name}/versions/latest"
+        response = client.access_secret_version(request={"name": name})
+        return response.payload.data.decode("UTF-8")
+    YOUR_API_KEY = get_secret("gemini-api-key")
+else:
+    YOUR_API_KEY = os.getenv("GEMINI_API_KEY", "YOUR_API_KEY_HERE")
 
 # Statistics
 stats = {
     "requests_intercepted": 0,
     "keys_replaced": 0,
 }
+
+# Prometheus metrics server
+class MetricsHandler(server.BaseHTTPRequestHandler):
+    def do_get(self):
+        if self.path == "/metrics":
+            metric_output = (
+                f"antigravity_requests_intercepted {stats['requests_intercepted']}\\n"
+                f"antigravity_keys_replaced {stats['keys_replaced']}\\n"
+            )
+            self.send_response(200)  # OK
+            self.send_header("Content-Type", "text/plain; version=0.4")
+            self.end_headers()
+            self.wfile.write(metric_output.encode())
+        else:
+            self.send_response(404)
+            self.end_headers()
+    # Compatibility alias for BaseHTTPRequestHandler expectations
+    do_GET = do_get
+
+def start_metrics_server(port=9090):
+    httpd = socketserver.TCPServer(("0.0.0.0", port), MetricsHandler)
+    thread = threading.Thread(target=httpd.serve_forever, daemon=True)
+    thread.start()
+    print(f"📊 Prometheus metrics server listening on http://0.0.0.0:{port}/metrics")
+
 
 
 class AntigravityInterceptor:
@@ -35,8 +75,11 @@ class AntigravityInterceptor:
         print("🚀 Antigravity Proxy - MITM Interceptor")
         print("=" * 60)
         print(f"🔑 Using API Key: {YOUR_API_KEY[:15]}***")
-        print(f"🎯 Target: generativelanguage.googleapis.com")
+        print("🎯 Target: generativelanguage.googleapis.com")
         print("=" * 60 + "\n")
+        # Start metrics server when interceptor is instantiated
+        start_metrics_server()
+
 
     def request(self, flow: http.HTTPFlow) -> None:
         """Intercept and modify requests"""
@@ -59,7 +102,7 @@ class AntigravityInterceptor:
             original_key = flow.request.headers["x-goog-api-key"]
             flow.request.headers["x-goog-api-key"] = YOUR_API_KEY
             stats["keys_replaced"] += 1
-            print(f"   🔄 Replaced key in header")
+            print("   🔄 Replaced key in header")
             print(f"      Old: {original_key[:15]}***")
             print(f"      New: {YOUR_API_KEY[:15]}***")
 
@@ -73,7 +116,7 @@ class AntigravityInterceptor:
                     r"key=[^&]+", f"key={YOUR_API_KEY}", flow.request.url
                 )
                 stats["keys_replaced"] += 1
-                print(f"   🔄 Replaced key in URL")
+                print("   🔄 Replaced key in URL")
                 print(f"      Old: {original_key[:15]}***")
                 print(f"      New: {YOUR_API_KEY[:15]}***")
 
@@ -82,8 +125,8 @@ class AntigravityInterceptor:
             try:
                 body_preview = flow.request.content.decode("utf-8")[:200]
                 print(f"   📄 Body preview: {body_preview}...")
-            except:
-                print(f"   📄 Body: <binary data>")
+            except Exception as e:
+                print(f"   📄 Body: <binary data> ({e})")
 
     def response(self, flow: http.HTTPFlow) -> None:
         """Log responses"""
@@ -97,12 +140,12 @@ class AntigravityInterceptor:
         print(f"   Status: {flow.response.status_code}")
 
         if flow.response.status_code != 200:
-            print(f"   ⚠️  Non-200 response!")
+            print("   ⚠️  Non-200 response!")
             try:
                 error_preview = flow.response.content.decode("utf-8")[:300]
                 print(f"   Error: {error_preview}")
-            except:
-                pass
+            except Exception as e:
+                print(f"   Error parsing response body: {e}")
 
         # Print statistics
         print(

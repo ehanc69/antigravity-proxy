@@ -1,0 +1,5 @@
+flask
+gunicorn
+mitmproxy
+python-dotenv
+google-cloud-secret-manager
