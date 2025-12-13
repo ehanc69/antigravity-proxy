@@ -148,7 +148,7 @@ def request(flow: http.HTTPFlow) -> None:
 4. **Well-Documented**: Extensive docs and examples
 5. **Maintained**: Active open-source project
 
-### 🚀 Next Steps
+### 🚀 Next Step [OBSOLETE]s
 
 If you want this to actually work, I recommend:
 

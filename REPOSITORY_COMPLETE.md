@@ -77,7 +77,7 @@ antigravity-proxy/
 - ✅ Contributing guidelines
 - ✅ API endpoint reference
 
-## 🚀 Next Steps to Publish
+## 🚀 Next Step [OBSOLETE]s to Publish
 
 ### 1. Create GitHub Repository
 

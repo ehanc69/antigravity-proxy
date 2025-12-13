@@ -21,5 +21,5 @@ RUN python -m venv /app/.venv && \
 # Expose the default proxy port (can be overridden at runtime)
 EXPOSE 8080
 
-# Default command runs mitmproxy with the addon
-CMD ["/app/.venv/bin/mitmproxy", "-s", "mitmproxy-addon.py", "--listen-port", "8080"]
+# Default command runs the main application
+CMD ["/app/.venv/bin/python", "main.py"]
